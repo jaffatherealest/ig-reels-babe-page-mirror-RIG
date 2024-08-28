@@ -1,10 +1,8 @@
-from dotenv import load_dotenv
 import requests
-import os
 
-load_dotenv()
-
-SLACK_ALERT_WEBHOOK = os.getenv("SLACK_ALERT_WEBHOOK")
+from config import (
+    SLACK_ALERT_WEBHOOK
+)
 
 def send_slack_notification(message):
     """

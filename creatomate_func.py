@@ -1,10 +1,9 @@
 import requests
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-CREATOMATE_API_KEY = os.getenv("CREATOMATE_API_KEY")
+from config import (
+    CREATOMATE_API_KEY
+)
 
 def babe_page_template(video, caption):
   options = {
@@ -46,8 +45,3 @@ def check_status(id):
         response.raise_for_status()
 
     return response.json()
-
-# if __name__ == "__main__":
-#     id = 'eaa7b142-72c2-4527-a76f-c208f8c66228'
-#     response = check_status(id)
-#     print(response)

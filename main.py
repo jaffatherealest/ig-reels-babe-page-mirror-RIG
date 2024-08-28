@@ -1,22 +1,37 @@
-from airtable import fetch_reels_from_airtable, update_airtable_record, fetch_captions_from_airtable, fetch_tiktoks_from_airtable, update_airtable_record_tiktok
+from airtable import (
+    AirtableClient,
+    fetch_captions_from_airtable
+)
 from googledrive import authenticate_drive_api, upload_file_to_drive, download_file_from_url, retrieve_drive_file_info, upload_creatomate_video_to_drive
 from creatomate_func import babe_page_template, check_status
 from slack_alert import send_slack_notification
 from mirror import apply_mirror_video
 from topaz import upscale_video
+from tos_detect import (
+    extract_frames_from_video,
+    detect_text_in_frames,
+    cleanup_files
+)
 import itertools
 import os
 import io
 import time
+from config import (
+    videos_table,
+    tiktok_videos_view,
+    AIRTABLE_API_KEY,
+    bp_source_scraper_base_id
+)
 
 def main():
     service = authenticate_drive_api()
-    # records = fetch_reels_from_airtable() # for when we want to take from sfc vault base
-    records = fetch_tiktoks_from_airtable() # functin for fetching tiktoks from bp-source-scraper
-    print(len(records))
+    bp_scraper_client = AirtableClient(base_id=bp_source_scraper_base_id, api_key=AIRTABLE_API_KEY)
+
+    tiktok_records = bp_scraper_client.fetch_records(videos_table, tiktok_videos_view)
+
     captions = fetch_captions_from_airtable()
 
-    for record, caption_record in zip(records, itertools.cycle(captions)):
+    for record, caption_record in zip(tiktok_records, itertools.cycle(captions)):
         download_url = record['fields']['DOWNLOAD URL']
         caption = caption_record['fields']['CAPTION']
         
@@ -27,11 +42,21 @@ def main():
         try:
             # Attempt to download the video file from the provided URL
             file_ioo = download_file_from_url(download_url)
+            frames = extract_frames_from_video(file_ioo)
+            if detect_text_in_frames(frames):
+                cleanup_files(frames) #NOTE: cleanup frames after tos detected 
+                fields = {
+                    "TOS DETECTED": True
+                }
+                bp_scraper_client.update_record(videos_table, record['id'], fields)
+                continue
         except Exception as e:
             error_message = f"Failed to download file from URL {download_url} for record {record['id']}: {e}"
             send_slack_notification(error_message)
             print(error_message)
             continue  # Skip to the next record
+
+        cleanup_files(frames) #NOTE: cleanup frames if the file passes the tos detect test
 
         # Create an in-memory output buffer
         output_io = io.BytesIO()
@@ -146,7 +171,10 @@ def main():
         if file_info and 'id' in file_info:
             try:
                 # update_airtable_record(record['id']) # sfc vault reels
-                update_airtable_record_tiktok(record['id']) # bp-source-scraper tiktok
+                fields = {
+                    "BABE PAGE TEMPLATE USED": True
+                }
+                bp_scraper_client.update_record(videos_table, record['id'], fields)
             except Exception as e:
                 error_message = f"Failed to update Airtable record {record['id']}: {e}"
                 send_slack_notification(error_message)
